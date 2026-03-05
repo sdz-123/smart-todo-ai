@@ -2,12 +2,13 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '/api';
 
 export interface Task {
-  id: number;
+  id: string;  // 从number改为string（UUID）
   text: string;
   completed: boolean;
   category: string;
   priority: number;
-  createdAt: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ApiResponse<T = any> {
@@ -22,7 +23,6 @@ export interface ApiResponse<T = any> {
 // 获取任务列表
 export async function getTasks(filter: 'all' | 'active' | 'completed' = 'all'): Promise<ApiResponse<Task[]>> {
   try {
-    console.log(`正在获取任务，filter: ${filter}`);
     const response = await fetch(`${API_BASE}/tasks?filter=${filter}`, {
       cache: 'no-store',
     });
@@ -44,7 +44,6 @@ export async function getTasks(filter: 'all' | 'active' | 'completed' = 'all'): 
 // 创建任务
 export async function createTask(text: string): Promise<ApiResponse<Task>> {
   try {
-    console.log('正在创建任务:', text);
     const response = await fetch(`${API_BASE}/tasks`, {
       method: 'POST',
       headers: { 
@@ -68,9 +67,8 @@ export async function createTask(text: string): Promise<ApiResponse<Task>> {
 }
 
 // 更新任务
-export async function updateTask(id: number, updates: Partial<Task>): Promise<ApiResponse<Task>> {
+export async function updateTask(id: string, updates: Partial<Task>): Promise<ApiResponse<Task>> {
   try {
-    console.log('正在更新任务:', { id, updates });
     const response = await fetch(`${API_BASE}/tasks?id=${id}`, {
       method: 'PUT',
       headers: { 
@@ -94,9 +92,8 @@ export async function updateTask(id: number, updates: Partial<Task>): Promise<Ap
 }
 
 // 删除任务
-export async function deleteTask(id: number): Promise<ApiResponse<void>> {
+export async function deleteTask(id: string): Promise<ApiResponse<void>> {
   try {
-    console.log('正在删除任务:', id);
     const response = await fetch(`${API_BASE}/tasks?id=${id}`, {
       method: 'DELETE',
     });

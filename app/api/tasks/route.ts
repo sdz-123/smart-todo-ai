@@ -1,34 +1,6 @@
 // app/api/tasks/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-
-// 模拟数据库 - 在内存中存储任务
-// 注意：实际生产环境应该用数据库，这里为了演示
-let tasks = [
-  { 
-    id: 1, 
-    text: '学习Serverless架构', 
-    completed: true, 
-    category: '学习', 
-    priority: 1,
-    createdAt: '2026-02-15T10:30:00Z'
-  },
-  { 
-    id: 2, 
-    text: '准备春节年货', 
-    completed: false, 
-    category: '生活', 
-    priority: 2,
-    createdAt: '2026-02-16T14:20:00Z'
-  },
-  { 
-    id: 3, 
-    text: '完成项目文档', 
-    completed: false, 
-    category: '工作', 
-    priority: 1,
-    createdAt: '2026-02-16T09:15:00Z'
-  },
-];
+import { supabase } from '@/lib/supabase';
 
 // 智能分类函数
 function autoCategorize(text: string): string {
@@ -53,23 +25,43 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const filter = searchParams.get('filter') || 'all';
     
-    console.log('GET请求收到，filter:', filter);
-    
-    let filteredTasks = [...tasks];
+    // 构建查询
+    let query = supabase.from('tasks').select('*');
     
     if (filter === 'active') {
-      filteredTasks = tasks.filter(task => !task.completed);
+      query = query.eq('completed', false);
     } else if (filter === 'completed') {
-      filteredTasks = tasks.filter(task => task.completed);
+      query = query.eq('completed', true);
     }
     
-    const completedCount = tasks.filter(task => task.completed).length;
+    // 按创建时间降序排序
+    query = query.order('created_at', { ascending: false });
+    
+    const { data: tasks, error } = await query;
+    
+    if (error) {
+      console.error('Supabase查询错误:', error);
+      return NextResponse.json(
+        { success: false, error: '数据库查询失败' },
+        { status: 500 }
+      );
+    }
+    
+    // 获取统计信息
+    const { count: total } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true });
+    
+    const { count: completed } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .eq('completed', true);
     
     return NextResponse.json({
       success: true,
-      data: filteredTasks,
-      total: tasks.length,
-      completed: completedCount,
+      data: tasks || [],
+      total: total || 0,
+      completed: completed || 0,
       message: '获取任务成功'
     });
     
@@ -96,21 +88,29 @@ export async function POST(request: NextRequest) {
     }
     
     const newTask = {
-      id: Date.now(),
       text: text.trim(),
       completed: false,
       category: autoCategorize(text),
       priority: calculatePriority(text),
-      createdAt: new Date().toISOString(),
     };
     
-    tasks.push(newTask);
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert([newTask])
+      .select()
+      .single();
     
-    console.log('创建新任务:', newTask);
+    if (error) {
+      console.error('Supabase插入错误:', error);
+      return NextResponse.json(
+        { success: false, error: '创建任务失败' },
+        { status: 500 }
+      );
+    }
     
     return NextResponse.json({
       success: true,
-      data: newTask,
+      data,
       message: '任务创建成功'
     }, { status: 201 });
     
@@ -127,30 +127,41 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = parseInt(searchParams.get('id') || '0');
+    const id = searchParams.get('id');
     const body = await request.json();
     
-    console.log('更新任务:', { id, updates: body });
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: '缺少任务ID' },
+        { status: 400 }
+      );
+    }
     
-    const taskIndex = tasks.findIndex(task => task.id === id);
+    const { data, error } = await supabase
+      .from('tasks')
+      .update(body)
+      .eq('id', id)
+      .select()
+      .single();
     
-    if (taskIndex === -1) {
+    if (error) {
+      console.error('Supabase更新错误:', error);
+      return NextResponse.json(
+        { success: false, error: '更新任务失败' },
+        { status: 500 }
+      );
+    }
+    
+    if (!data) {
       return NextResponse.json(
         { success: false, error: '任务不存在' },
         { status: 404 }
       );
     }
     
-    // 更新任务
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      ...body,
-      id: tasks[taskIndex].id, // 保持ID不变
-    };
-    
     return NextResponse.json({
       success: true,
-      data: tasks[taskIndex],
+      data,
       message: '任务更新成功'
     });
     
@@ -167,17 +178,25 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = parseInt(searchParams.get('id') || '0');
+    const id = searchParams.get('id');
     
-    console.log('删除任务:', id);
-    
-    const initialLength = tasks.length;
-    tasks = tasks.filter(task => task.id !== id);
-    
-    if (tasks.length === initialLength) {
+    if (!id) {
       return NextResponse.json(
-        { success: false, error: '任务不存在' },
-        { status: 404 }
+        { success: false, error: '缺少任务ID' },
+        { status: 400 }
+      );
+    }
+    
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Supabase删除错误:', error);
+      return NextResponse.json(
+        { success: false, error: '删除任务失败' },
+        { status: 500 }
       );
     }
     
